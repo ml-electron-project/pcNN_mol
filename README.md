@@ -35,3 +35,6 @@ converged SCF energy = -76.3462003834499
       archivePrefix={arXiv},
       primaryClass={cond-mat.mtrl-sci}
 }
+
+
+Copyright 2021 Ryo Nagai
