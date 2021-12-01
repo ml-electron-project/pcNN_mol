@@ -1,0 +1,5 @@
+###### Requirements without Version Specifiers ######`
+numpy
+torch
+jax[cpu]
+pyscf
