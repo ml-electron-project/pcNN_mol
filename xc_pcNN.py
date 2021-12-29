@@ -172,7 +172,7 @@ class Net:
         div = 1.0/(x[1]+x[0]+1e-7)
         t1 = ((1+(x[0]-x[1])*div)**THIRD4+(1-(x[0]-x[1])*div)**THIRD4)*0.5
         t2 = ((x[2]+x[4]+2*x[3]+10**(-56/3))**0.5)/unif**4
-        tauunif = 5.921762640653615*unif**5
+        tauunif = 0.3*(3*PI**2)**THIRD2*unif**5
         t3 = (x[5]+x[6])/tauunif-1.0
 
         t = jnp.tanh(jnp.stack((t0, t1, t2, t3), axis=-1)/self.tansigma)
@@ -288,7 +288,6 @@ class Net:
 
     def gen_conds_c(self, g, params):
         rho, zeta, s, tau = g
-        tau_unif = 0.3*(3*PI**2)*THIRD2  # *rho**THIRD5
         # ,[math.atan(1.0/self.tansigma)*IPIH,tau]
         g0s = jnp.array(((rho, zeta, 0, 0),
                          (0, zeta, s, tau), (1.0, zeta, s, tau)))
@@ -352,7 +351,7 @@ class Net:
 
     def calc_c(self, rho, spin):
         if spin != 0:
-            #escan, vscan = dft.libxc.eval_xc(',scan', rho, spin=1)[0:2]
+            #escan, vscan = dft.xcfun.eval_xc(',scan', rho, spin=1)[0:2]
             rho1 = rho[0]
             rho2 = rho[1]
             rho01, dx1, dy1, dz1, lapl1, tau1 = rho1[:6]
@@ -362,7 +361,7 @@ class Net:
             gamma2 = dx2**2+dy2**2+dz2**2
             gamma12 = dx1*dx2+dy1*dy2+dz1*dz2
         else:
-            #escan, vscan = dft.libxc.eval_xc(',scan', rho, spin=0)[0:2]
+            #escan, vscan = dft.xcfun.eval_xc(',scan', rho, spin=0)[0:2]
             rho0, dx, dy, dz, lapl, tau = rho[:6]
             gamma1 = gamma2 = gamma12 = (dx**2+dy**2+dz**2)*0.25
             rho01 = rho02 = rho0*0.5
@@ -371,13 +370,6 @@ class Net:
         n = np.stack((rho01, rho02, gamma1, gamma12,
                       gamma2, tau1, tau2), axis=-1)
 
-        unif = (rho0+1e-7)**THIRD
-        tauunif = 5.921762640653615*unif**5
-        t1 = (tau1+tau2)/tauunif-1.0
-        t2 = (tau1+tau2)/unif**5
-        # print(np.min(t1), np.min(t2))
-        # print(np.max(t1), np.max(t2))
-        N = n.shape[0]
         params_c = (self.w1, self.w2, self.w3, self.w4, self.b1, self.b2, self.b3, self.b4,
                     self.w1c, self.w2c, self.w3c, self.w4c, self.b1c, self.b2c, self.b3c, self.b4c)
         # print(len(params_c))
@@ -391,7 +383,7 @@ class Net:
             fx, gr = map(np.array, self.calc_s0(n))
             fx, df = self.shifted_softplus1(fx)
             gr *= df.reshape((-1, 1))
-            escan, vscan = dft.libxc.eval_xc('scan,', n, spin=0)[0:2]
+            escan, vscan = dft.xcfun.eval_xc('scan,', n, spin=0)[0:2]
             ex = fx*escan
             vlapl = np.zeros(N)
             vrho = vscan[0]*fx+rho0*escan*(gr[:, 0]+gr[:, 1])/2
@@ -410,8 +402,8 @@ class Net:
             fx2, df2 = self.shifted_softplus1(fx2)
             gr2 *= df2.reshape((-1, 1))
 
-            escan1, vscan1 = dft.libxc.eval_xc('scan,', n1*2, spin=0)[0:2]
-            escan2, vscan2 = dft.libxc.eval_xc('scan,', n2*2, spin=0)[0:2]
+            escan1, vscan1 = dft.xcfun.eval_xc('scan,', n1*2, spin=0)[0:2]
+            escan2, vscan2 = dft.xcfun.eval_xc('scan,', n2*2, spin=0)[0:2]
             # print(fx1)
             ex = (rho01*escan1*fx1+rho02*escan2*fx2)/(rho01+rho02)
 
@@ -438,7 +430,7 @@ class Net:
         fc, df = self.shifted_softplus1(fc)
         gr *= df.reshape((-1, 1))
 
-        escan, vscan = dft.libxc.eval_xc(',scan', n, spin)[0:2]
+        escan, vscan = dft.xcfun.eval_xc(',scan', n, spin)[0:2]
         ec = fc*escan
         N = escan.shape[0]
         if spin != 0:
@@ -471,7 +463,7 @@ class Net:
         exc = ex+ec
         vxc = tuple(vx[i]+vc[i] for i in range(4))
 
-        #escan, vscan = dft.libxc.eval_xc('scan', rho, spin)[0:2]
+        #escan, vscan = dft.xcfun.eval_xc('scan', rho, spin)[0:2]
         # print(escan[0],exc[0],vscan[1][0],vxc[1][0])
 
         return exc, vxc, None, None
