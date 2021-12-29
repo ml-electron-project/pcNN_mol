@@ -8,7 +8,7 @@ numpy
 PySCF == 2.0.1  
 pytorch   
 JAX  
-(For pytorch and JAX, CUDA version is not necessary.)
+(For pytorch and JAX, CUDA version is not required.)
 
 ## Usage
 Run dft_pcnn.py and you will be asked to input the place of coodinate file (absolute path), spin number, and charge number.　　　　
