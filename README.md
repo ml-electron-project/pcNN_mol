@@ -5,7 +5,7 @@ https://arxiv.org/abs/2111.15593
 ## Requirements
 Python3  
 numpy  
-PySCF  
+PySCF == 2.0.1
 pytorch   
 JAX  
 (For pytorch and JAX, CUDA version is not necessary.)
