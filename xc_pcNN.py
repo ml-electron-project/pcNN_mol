@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 #!/usr/bin/env python
 # %%
+#import matplotlib.pyplot as plt
 import numpy as np
 import random
 import math
@@ -8,9 +9,12 @@ from pyscf import dft
 import jax
 from jax import numpy as jnp
 from jax import grad, jit, vmap, value_and_grad
+#from jax.lax import dynamic_slice
 import torch
 import torch.nn as nn
 import os
+
+import time
 
 ATANSIGMA = 1.0  # decaying speed of arctan
 ATANSIGMA2 = 1.0
@@ -19,30 +23,14 @@ SCALE_C = 1  # 2
 DELTA_X = 1  # delta to kill higher order effect in    polynomial
 DELTA_C = 1
 
-
 THIRD = 1.0/3
 THIRD2 = 2.0/3
 THIRD4 = 4.0/3
 THIRD5 = 5.0/3
 
-seed = 0
-random.seed(seed)
-np.random.seed(100)
-# np.random.seed()
 PI = math.pi
 PIH = PI*0.5
 IPIH = 1.0/PIH
-
-LObound = 1.174
-LObound_point = 2.0*math.atanh(2.0/LObound-1.0)
-
-tpoint = math.tan(math.pi*(1.0/LObound-0.5))
-bpoint = 1.0  # LObound/PI/(1+tpoint**2)
-LObound_point2 = tpoint*bpoint
-
-# %%
-
-# %%
 
 
 class Net:
@@ -187,22 +175,35 @@ class Net:
         df = 2.0*tmp/(1+tmp)
         return f, df
 
+    # def shifted_sigmoid(self, x, a=1.17353014252399):
+    #     c = a-1
+    #     b = a/c
+    #     tmp0 = np.exp(-b*(x-1.0))
+    #     tmp = a/(1.0+c*tmp0)
+    #     f = tmp
+    #     df = tmp**2*(1.0/a*b*c)*tmp0
+    #     return f, df
+
     def forward(self, t, params):
         w1, w2, w3, w4, b1, b2, b3, b4 = params
+        # logt=jnp.log(1.0+t)
 
         g1 = self.shifted_softplus0(jnp.matmul(t, w1.T)+b1)
         g2 = self.shifted_softplus0(jnp.matmul(g1, w2.T)+b2)
         g3 = self.shifted_softplus0(jnp.matmul(g2, w3.T)+b3)
         g4 = jnp.matmul(g3, w4.T)+b4
         return g4[0]
+        # return 1.0
 
-    def forward_c(self, t, params):  # t1,t2の通すべきNNが逆だったので訓練やり直し
+    def forward_c(self, t, params):  
         params_x = params[:8]
         params_c = params[8:]
         w1, w2, w3, w4, b1, b2, b3, b4 = params_x
         w1c, w2c, w3c, w4c, b1c, b2c, b3c, b4c = params_c
         t1 = t[0:2]
         t2 = t[2:4]
+
+        # logt=jnp.log(1.0+t)
 
         g1 = self.shifted_softplus0(jnp.matmul(t1, w1c.T)+b1c)
         g2 = self.shifted_softplus0(jnp.matmul(g1, w2c.T)+b2c)
@@ -217,21 +218,30 @@ class Net:
 
     def gen_conds(self, g):
         rho, zeta, s, tau = g
-
+        tau_unif = 0.3*(3*PI**2)*THIRD2  # *rho**THIRD5
+        # ,[math.atan(1.0/self.tansigma)*IPIH,tau]
         g0s = jnp.array([[0, 0], [1, tau]])
         self.ncon_x = g0s.shape[0]
         c_s_inf = 1.0
+        c_s_mid = 1.0
         f0s = jnp.array([1.0, c_s_inf])  # ,c_s_mid
         return g0s, f0s
 
     # vectorize index: (0,None,0) index->index[i], dis_ij->dis_ij[i]
     def product(self, index, dis, dis_ij):
         rdis = jnp.roll(dis, -index)
+        # rdis_ij=jnp.roll(dis_ij,-index)
         rdis_ij = jnp.roll(dis_ij, -index)
+        # print(rdis,rdis_ij)
+        # print(dis.shape,dis_ij.shape)
         sigma = 0
 
         denomi = jnp.prod(jnp.where(rdis_ij < 1e-7, 1.0, rdis)[1:])
         numer = jnp.prod(jnp.where(rdis_ij < 1e-7, 1.0, rdis_ij)[1:])
+        # denomi= jnp.prod(jnp.where(rdis<1e-7,1.0,rdis)[1:])
+        # numer = jnp.prod(jnp.where(rdis_ij<1e-7,1.0,rdis_ij)[1:])
+        # denomi=jnp.prod(rdis)[1:])
+        # numer=jnp.prod(rdis_ij[1:])
         return denomi/numer
 
     def connect(self, n, params):
@@ -250,8 +260,10 @@ class Net:
         dis_ij = jnp.sum((g0x-g0xt)**2, axis=2)
 
         dis_ij = jnp.tanh(dis_ij/delta**2)  # dimentionless
-        cs = self.con(inds.reshape(-1, 1), dis, dis_ij)
+        # print(dis_ij.shape)
 
+        cs = self.con(inds.reshape(-1, 1), dis, dis_ij)
+        # debug
         self.gx = gx
         self.cs = cs
         fs = (f_nn-f_g0)+f0x
@@ -260,6 +272,7 @@ class Net:
 
     def gen_conds_c(self, g, params):
         rho, zeta, s, tau = g
+        # ,[math.atan(1.0/self.tansigma)*IPIH,tau]
         g0s = jnp.array(((rho, zeta, 0, 0),
                          (0, zeta, s, tau), (1.0, zeta, s, tau)))
         self.ncon_c = g0s.shape[0]
@@ -275,8 +288,10 @@ class Net:
 
     def connect_c(self, n, params):
         gc = self.makeg_j(n)
+        # print(gc)
         g0c, f0c = self.gen_conds_cj(gc, params)
         inds = jnp.arange(0, self.ncon_c)
+        # print(gc)
         f_nn = self.forward_cj(gc, params)
         f_g0 = self.vforward_c(g0c, params)
         delta = DELTA_C
@@ -284,16 +299,23 @@ class Net:
         dis = jnp.sum((gc-g0c)**2, axis=1)  # descriptor distance
         dis = jnp.tanh(dis/delta**2)
 
+        # dis=dis/(delta+dis)#dimentionless
         g0c = g0c.reshape((self.ncon_c, 1, -1))
         g0ct = g0c.transpose((1, 0, 2))
+        # dis_ij=dis_ij/(delta+dis_ij)#dimentionless
         dis_ij = jnp.sum((g0c-g0ct)**2, axis=2)
         dis_ij = jnp.tanh(dis_ij/delta**2)
+        # print(dis_ij)
 
         cs = self.con(inds.reshape(-1, 1), dis, dis_ij)
 
+        # debug
         self.gc = gc
         self.cs = cs
         fs = (f_nn-f_g0)+f0c  # (f_nn-f_g0)+f0c
+        # print("f_nn",f_nn)
+        # print("f_g0",f_g0)
+        # print("f0c",f0c)
         total = jnp.dot(fs, cs)/jnp.sum(cs)
         return total
         # return f_nn
@@ -313,6 +335,7 @@ class Net:
 
     def calc_c(self, rho, spin):
         if spin != 0:
+            #escan, vscan = dft.xcfun.eval_xc(',scan', rho, spin=1)[0:2]
             rho1 = rho[0]
             rho2 = rho[1]
             rho01, dx1, dy1, dz1, lapl1, tau1 = rho1[:6]
@@ -322,6 +345,7 @@ class Net:
             gamma2 = dx2**2+dy2**2+dz2**2
             gamma12 = dx1*dx2+dy1*dy2+dz1*dz2
         else:
+            #escan, vscan = dft.xcfun.eval_xc(',scan', rho, spin=0)[0:2]
             rho0, dx, dy, dz, lapl, tau = rho[:6]
             gamma1 = gamma2 = gamma12 = (dx**2+dy**2+dz**2)*0.25
             rho01 = rho02 = rho0*0.5
@@ -380,11 +404,13 @@ class Net:
             vlapl = np.zeros((N, 2))
             vtau = np.stack((vtau1, vtau2), -1)
 
+        # print(fx[4080],gr[4080])
         vx = (vrho, vgamma, vlapl, vtau)
         return ex, vx
 
     def eval_c(self, n, spin):
         fc, gr = map(np.array, self.calc_c(n, spin))
+        # gr = np.nan_to_num(gr)
         fc, df = self.shifted_softplus1(fc)
         gr *= df.reshape((-1, 1))
 
@@ -411,6 +437,7 @@ class Net:
             vtau = vscan[3]*fc+rho0*escan*(gr[:, 5]+gr[:, 6])/2
         vc = (vrho, vgamma, vlapl, vtau)
 
+        # print(fc[4080],gr[4080])
         return ec, vc
 
     def eval_xc(self, xc_code, rho, spin, relativity=0, deriv=2, verbose=None):
@@ -419,5 +446,8 @@ class Net:
 
         exc = ex+ec
         vxc = tuple(vx[i]+vc[i] for i in range(4))
+
+        #escan, vscan = dft.xcfun.eval_xc('scan', rho, spin)[0:2]
+        # print(escan[0],exc[0],vscan[1][0],vxc[1][0])
 
         return exc, vxc, None, None
